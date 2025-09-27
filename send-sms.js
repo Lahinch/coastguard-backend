@@ -1,58 +1,69 @@
-// Import the Twilio helper library
 const twilio = require('twilio');
 
-// IMPORTANT: Store your credentials securely as environment variables.
-// Do NOT hardcode them in your file.
 const accountSid = process.env.TWILIO_ACCOUNT_SID;
 const authToken = process.env.TWILIO_AUTH_TOKEN;
 const twilioPhoneNumber = process.env.TWILIO_PHONE_NUMBER;
 
-// Initialize the Twilio client
 const client = twilio(accountSid, authToken);
 
-// This is the main function that will be executed when the API endpoint is called.
-// The exact syntax might vary slightly depending on your hosting provider (Vercel, Netlify, etc.)
+// List of approved frontend origins
+const allowedOrigins = [
+  'https://www.sarcommand.ie',
+  'https://sarcommand.ie'
+];
+
 exports.handler = async function(event, context) {
-  // Only allow POST requests
-  if (event.httpMethod !== 'POST') {
-    return { statusCode: 405, body: 'Method Not Allowed' };
+  const origin = event.headers.origin;
+  const referer = event.headers.referer || ''; // The full URL of the page that made the request
+
+  let headers = {
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type"
+  };
+
+  // Dynamically set the Allow-Origin header if the request is from an approved domain
+  if (allowedOrigins.includes(origin)) {
+    headers["Access-Control-Allow-Origin"] = origin;
+  }
+
+  // Handle preflight OPTIONS request
+  if (event.httpMethod === "OPTIONS") {
+    return { statusCode: 204, headers };
+  }
+
+  // Only allow POST
+  if (event.httpMethod !== "POST") {
+    return { statusCode: 405, headers, body: 'Method Not Allowed' };
   }
 
   try {
     const data = JSON.parse(event.body);
     const userPhoneNumber = data.phone;
-
     if (!userPhoneNumber) {
-      return { statusCode: 400, body: 'Phone number is required.' };
+      return { statusCode: 400, headers, body: 'Phone number is required.' };
     }
 
-    // --- Generate the Unique Location Link ---
-    // In a real application, you'd generate a truly unique ID and maybe store it.
-    // For now, we'll use a static channel name as planned.
-    const uniqueId = 'coastguard_rescue_channel'; // This should be dynamic in a full version
-    const locationUrl = `https://YOUR_WEBSITE_DOMAIN/locate.html?id=${uniqueId}`;
+    // --- THIS IS THE FIX ---
+    // Check the 'referer' header to see which page sent the request
+    const locatePath = referer.includes('/V9/') ? '/V9/locate.html' : '/smsping/locate.html';
+    const locationUrl = `https://www.sarcommand.ie${locatePath}`;
     
-    // --- Create and Send the SMS using the Twilio API ---
     await client.messages.create({
-      body: `Emergency locator link from the Irish Coast Guard. Please click to share your location: ${locationUrl}`,
+      body: `Emergency locator link from SAR Command. Please click to share your location: ${locationUrl}`,
       from: twilioPhoneNumber,
       to: userPhoneNumber
     });
 
-    console.log(`SMS sent successfully to ${userPhoneNumber}`);
-    
-    // Return a success response to the frontend
     return {
       statusCode: 200,
+      headers,
       body: JSON.stringify({ message: 'SMS sent successfully!' })
     };
-
   } catch (error) {
     console.error('Twilio SMS sending failed:', error);
-    
-    // Return an error response to the frontend
     return {
       statusCode: 500,
+      headers,
       body: JSON.stringify({ error: 'Failed to send SMS.' })
     };
   }
